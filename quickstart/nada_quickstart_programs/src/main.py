@@ -1,10 +1,4 @@
-"""
-PROGRAM 6 
-
-nr of voters: m = 3
-nr of candidates: n = 2
-"""
-
+from functools import reduce  # Import reduce from functools
 from nada_dsl import *
 
 
@@ -21,189 +15,105 @@ def return_val_if_any_false(list_of_bool, val):
     - 0: If none of the booleans in the list are false.
     """
 
-    final_value = UnsignedInteger(0)
-    for bool in list_of_bool:
-        # Use if_else method to check if the current boolean is true,
-        # if true, return vfinal_valueal, otherwise return the current val
-        final_value = bool.if_else(final_value, val)
+    # Initialize a constant zero value
+    zero_value = UnsignedInteger(0)
+
+    # Define a function to return the desired value
+    def select_value(bool_value):
+        return bool_value * val + (1 - bool_value) * zero_value
+
+    # Use reduce to apply the select_value function across all booleans
+    final_value = reduce(select_value, list_of_bool, zero_value)
 
     return final_value
 
 
-def initialize_voters(nr_voters):
+def initialize_collaborators(nr_collaborators):
     """
-    Initialize voters with unique identifiers.
+    Initialize collaborators with unique identifiers.
 
     Parameters:
-    - nr_voters (int): Number of voters.
+    - nr_collaborators (int): Number of collaborators.
 
     Returns:
-    - voters (list): List of Party objects representing voters.
+    - collaborators (list): List of Party objects representing collaborators.
     """
-    voters = []
-    for i in range(nr_voters):
-        voters.append(Party(name="Voter" + str(i)))
+    collaborators = []
+    for i in range(nr_collaborators):
+        collaborators.append(Party(name="Collaborator" + str(i)))
 
-    return voters
+    return collaborators
 
 
-def inputs_initialization(nr_voters, nr_candidates, voters):
+def initialize_work_and_capacity(nr_collaborators, collaborators):
     """
-    Initialize inputs for votes per candidate.
+    Initialize work and capacity vectors for collaborators.
 
     Parameters:
-    - nr_voters (int): Number of voters.
-    - nr_candidates (int): Number of candidates.
+    - nr_collaborators (int): Number of collaborators.
+    - collaborators (list): List of Party objects representing collaborators.
 
     Returns:
-    - votes_per_candidate (list): List of lists representing votes per candidate.
+    - work_to_be_done (list): List representing work to be allocated.
+    - capacity (list): List representing capacity (ability to do work) for each collaborator.
     """
-    votes_per_candidate = []
-    for c in range(nr_candidates):
-        votes_per_candidate.append([])
-        for v in range(nr_voters):
-            votes_per_candidate[c].append(
-                SecretUnsignedInteger(
-                    Input(name="v" + str(v) + "_c" + str(c), party=voters[v])
-                )
-            )
+    work_to_be_done = []
+    capacity = []
+    for i in range(nr_collaborators):
+        # Generate random work to be done (for demonstration purposes)
+        work_to_be_done.append(SecretUnsignedInteger(Input(name="work_" + str(i), party=collaborators[i])))
+        # Generate random capacity (for demonstration purposes)
+        capacity.append(SecretUnsignedInteger(Input(name="capacity_" + str(i), party=collaborators[i])))
 
-    return votes_per_candidate
+    return work_to_be_done, capacity
 
 
-def count_votes(nr_voters, nr_candidates, votes_per_candidate, outparty):
+def allocate_work(nr_collaborators, work_to_be_done, capacity, outparty):
     """
-    Count votes for each candidate.
+    Allocate work to collaborators based on their capacity to maximize work done.
 
     Parameters:
-    - nr_voters (int): Number of voters.
-    - nr_candidates (int): Number of candidates.
-    - votes_per_candidate (list): List of lists representing votes per candidate.
+    - nr_collaborators (int): Number of collaborators.
+    - work_to_be_done (list): List representing work to be allocated.
+    - capacity (list): List representing capacity (ability to do work) for each collaborator.
+    - outparty (Party): Party object representing the output party.
 
     Returns:
-    - votes (list): List of Output objects representing vote counts for each candidate.
+    - allocated_work (list): List of Output objects representing allocated work for each collaborator.
     """
-    votes = []
-    for c in range(nr_candidates):
-        result = votes_per_candidate[c][0]
-        for v in range(1, nr_voters):
-            result += votes_per_candidate[c][v]
-        votes.append(Output(result, "final_vote_count_c" + str(c), outparty))
+    allocated_work = []
+    total_capacity = reduce(lambda x, y: x + y, capacity)
 
-    return votes
+    for c in range(nr_collaborators):
+        # Allocate work proportional to capacity using secure division
+        allocated_work_c = work_to_be_done[c] * (capacity[c] / total_capacity)
+        allocated_work.append(Output(allocated_work_c, "allocated_work_collaborator" + str(c), outparty))
 
-
-def fn_check_sum(nr_voters, nr_candidates, votes_per_candidate, outparty):
-    """
-    Check the sum of votes for each voter.
-
-    Parameters:
-    - nr_voters (int): Number of voters.
-    - nr_candidates (int): Number of candidates.
-    - votes_per_candidate (list): List of lists representing votes per candidate.
-
-    Returns:
-    - check_sum (list): List of Output objects representing the sum checks for each voter.
-    - if_sum_cheat_open (list): List of Output objects representing revealed votes of cheating voters.
-    """
-    check_sum = []
-    if_sum_cheat_open = []
-    for v in range(nr_voters):
-        check = votes_per_candidate[0][v]
-        for c in range(1, nr_candidates):
-            vote_v_c = votes_per_candidate[c][v]
-            check += vote_v_c
-            check_sum.append(Output(check, "check_sum_v" + str(v), outparty))
-            # Reveal if cheat
-            comp_v_sum = check <= UnsignedInteger(nr_candidates + 1)
-            for c in range(nr_candidates):
-                vote_v_c = votes_per_candidate[c][v]
-                if_sum_cheat_open_v_c = comp_v_sum.if_else(UnsignedInteger(0), vote_v_c)
-                if_sum_cheat_open.append(
-                    Output(
-                        if_sum_cheat_open_v_c,
-                        "if_sum_cheat_open_v" + str(v) + "_c" + str(c),
-                        outparty,
-                    )
-                )
-
-    return check_sum, if_sum_cheat_open
-
-
-def fn_check_prod(nr_voters, nr_candidates, votes_per_candidate, outparty):
-    """
-    Check the product of votes for each voter.
-
-    Parameters:
-    - nr_voters (int): Number of voters.
-    - nr_candidates (int): Number of candidates.
-    - votes_per_candidate (list): List of lists representing votes per candidate.
-
-    Returns:
-    - check_prod (list): List of Output objects representing the product checks for each voter.
-    - if_prod_cheat_open (list): List of Output objects representing revealed votes of cheating voters.
-    """
-    check_prod = []
-    if_prod_cheat_open = []
-    all_comp_prod = []
-    for v in range(nr_voters):
-        all_comp_v_prod = []
-        for c in range(nr_candidates):
-            vote_v_c = votes_per_candidate[c][v]
-            check_v_c_product = (UnsignedInteger(1) - vote_v_c) * (
-                UnsignedInteger(2) - vote_v_c
-            )
-            check_prod.append(
-                Output(
-                    check_v_c_product, "check_prod_v" + str(v) + "_c" + str(c), outparty
-                )
-            )
-            # collect all reveal conditions
-            comp_v_c_prod = check_v_c_product < UnsignedInteger(1)
-            all_comp_v_prod.append(comp_v_c_prod)
-        all_comp_prod.append(all_comp_v_prod)
-    # reveal all votes from voter v if
-    for v in range(nr_voters):
-        all_comp_v_prod = all_comp_prod[v]
-        for c in range(nr_candidates):
-            vote_v_c = votes_per_candidate[c][v]
-            if_prod_cheat_open_v_c = return_val_if_any_false(all_comp_v_prod, vote_v_c)
-            if_prod_cheat_open.append(
-                Output(
-                    if_prod_cheat_open_v_c,
-                    "if_prod_cheat_open_v" + str(v) + "_c" + str(c),
-                    outparty,
-                )
-            )
-
-    return check_prod, if_prod_cheat_open
+    return allocated_work
 
 
 def nada_main():
 
     # 0. Compiled-time constants
-    nr_voters = 3
-    nr_candidates = 2
+    nr_collaborators = 3
 
     # 1. Parties initialization
-    voters = initialize_voters(nr_voters)
+    collaborators = initialize_collaborators(nr_collaborators)
     outparty = Party(name="OutParty")
 
     # 2. Inputs initialization
-    votes_per_candidate = inputs_initialization(nr_voters, nr_candidates, voters)
+    work_to_be_done, capacity = initialize_work_and_capacity(nr_collaborators, collaborators)
 
     # 3. Computation
-    # Count the votes
-    votes = count_votes(nr_voters, nr_candidates, votes_per_candidate, outparty)
-    # Check input soundness
-    check_sum, if_sum_cheat_open = fn_check_sum(
-        nr_voters, nr_candidates, votes_per_candidate, outparty
-    )
-    check_prod, if_prod_cheat_open = fn_check_prod(
-        nr_voters, nr_candidates, votes_per_candidate, outparty
-    )
+    # Allocate work based on capacity
+    allocated_work = allocate_work(nr_collaborators, work_to_be_done, capacity, outparty)
 
     # 4. Output
-    # Concatenate lists
-    results = votes + check_sum + if_sum_cheat_open + check_prod + if_prod_cheat_open
+    results = allocated_work
     return results
+
+
+# Run the main function
+if __name__ == "__main__":
+    results = nada_main()
+    print(results)
